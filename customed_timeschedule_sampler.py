@@ -1,4 +1,4 @@
-import argparse, os, sys, glob
+import argparse, os
 import torch
 import torch.nn as nn
 import numpy as np
@@ -13,20 +13,11 @@ from torch import autocast
 from contextlib import contextmanager, nullcontext
 import accelerate
 import torchsde
-import pandas as pd
-import diffusers
 from pycocotools.coco import COCO
 from diffusers import (
-    AutoencoderKL,
-    DDPMScheduler,
-    LCMScheduler,
     StableDiffusionPipeline,
-    UNet2DConditionModel,
-    DiffusionPipeline,
-    LatentConsistencyModelPipeline
 )
-from huggingface_hub import login
-import shutil
+# from huggingface_hub import login
 from SVDNoiseUnet import NPNet64
 import functools
 import random
@@ -671,7 +662,7 @@ def main():
     parser.add_argument(
         "--scale",
         type=float,
-        default=7.5,
+        default=5,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     parser.add_argument(
@@ -707,7 +698,7 @@ def main():
     parser.add_argument(
         "--force_not_use_NPNet",
         action='store_true',
-        default=False,
+        default=True,
         help="use the free network for inference.",
     )
     parser.add_argument(
@@ -731,7 +722,7 @@ def main():
     parser.add_argument(
         "--use_8full_trcik",
         action='store_true',
-        default=False,
+        default=True,
         help="use the free network for inference.",
     )
     parser.add_argument(
@@ -962,7 +953,7 @@ def main():
                         # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
                     elif opt.iDDD_stop_steps == 5 and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
-                        sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=6.0, device=device)# 6.0 if 5 else  10.0
+                        sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
                         ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[6])
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
