@@ -18,7 +18,8 @@ import diffusers
 from pycocotools.coco import COCO
 from diffusers import (
     AutoencoderKL,
-    StableDiffusionXLPipeline
+    StableDiffusionXLPipeline,
+    StableDiffusionXLImg2ImgPipeline
 )
 from huggingface_hub import login
 import shutil
@@ -475,18 +476,37 @@ class BrownianTreeNoiseSampler:
         return self.tree(t0, t1) / (t1 - t0).abs().sqrt()
 
 @torch.no_grad()
-def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+def sample_euler(model
+                 , x
+                 , sigmas
+                 , extra_args=None
+                 , callback=None
+                 , disable=None
+                 , s_churn=0.
+                 , s_tmin=0.
+                 , s_tmax=float('inf')
+                 , tmp_list=[]
+                 , uncond_list=[]
+                 , need_distill_uncond=False
+                 , start_free_step = 1
+                 , noise_training_list={}
+                 , s_noise=1.):
     """Implements Algorithm 2 (Euler steps) from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     intermediates = {'x_inter': [x],'pred_x0': []}
+    register_free_upblock2d(model.inner_model.pipe, b1=1.0, b2=1.0, s1=1.0, s2=1.0)
+    register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.0, b2=1.0, s1=1.0, s2=1.0)
     for i in trange(len(sigmas) - 1, disable=disable):
+        if i == start_free_step:
+            register_free_upblock2d(model.inner_model.pipe, b1=1.3, b2=1.4, s1=0.9, s2=0.2)
+            register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.3, b2=1.4, s1=0.9, s2=0.2)
         gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
         eps = torch.randn_like(x) * s_noise
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        denoised = model(x, sigma_hat * s_in, **extra_args)
+        prompt_embeds, denoised = model(x, sigmas[i] * s_in, tmp_list=tmp_list,need_distill_uncond=need_distill_uncond,uncond_list=uncond_list, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
@@ -495,21 +515,36 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
         x = x + d * dt
         intermediates['pred_x0'].append(denoised)
         intermediates['x_inter'].append(x)
-    return intermediates, x
+    return prompt_embeds, intermediates, x
 
 @torch.no_grad()
-def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+def sample_heun(model
+                , x
+                , sigmas
+                , extra_args=None
+                , callback=None
+                , disable=None
+                , s_churn=0.
+                , s_tmin=0.
+                , s_tmax=float('inf')
+                , tmp_list=[]
+                , uncond_list=[]
+                , need_distill_uncond=False
+                , noise_training_list={}
+                , s_noise=1.):
     """Implements Algorithm 2 (Heun steps) from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     intermediates = {'x_inter': [x],'pred_x0': []}
+    register_free_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
+    register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
     for i in trange(len(sigmas) - 1, disable=disable):
         gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
         eps = torch.randn_like(x) * s_noise
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
             x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
-        denoised = model(x, sigma_hat * s_in, **extra_args)
+        prompt_embeds, denoised = model(x, sigmas[i] * s_in, tmp_list=tmp_list,need_distill_uncond=need_distill_uncond,uncond_list=uncond_list, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
@@ -520,16 +555,25 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
         else:
             # Heun's method
             x_2 = x + d * dt
-            denoised_2 = model(x_2, sigmas[i + 1] * s_in, **extra_args)
+            _, denoised_2 = model(x_2, sigmas[i + 1] * s_in, **extra_args)
             d_2 = to_d(x_2, sigmas[i + 1], denoised_2)
             d_prime = (d + d_2) / 2
             x = x + d_prime * dt
             intermediates['pred_x0'].append(denoised_2)
             intermediates['x_inter'].append(x)
-    return intermediates, x
+    return prompt_embeds, intermediates, x
 
 @torch.no_grad()
-def sample_dpmpp_ode(model, x, sigmas, need_golden_noise = False, extra_args=None, callback=None, disable=None,tmp_list=[],need_distill_uncond=False,uncond_list=[],noise_training_list={}):
+def sample_dpmpp_ode(model
+                     , x
+                     , sigmas
+                     , need_golden_noise = False
+                     , start_free_step = 1
+                     , extra_args=None, callback=None
+                     , disable=None,tmp_list=[]
+                     , need_distill_uncond=False
+                     , uncond_list=[]
+                     , noise_training_list={}):
     """DPM-Solver++."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -537,10 +581,14 @@ def sample_dpmpp_ode(model, x, sigmas, need_golden_noise = False, extra_args=Non
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
     
+    register_free_upblock2d(model.inner_model.pipe, b1=1, b2=1, s1=1, s2=1)
+    register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1, b2=1, s1=1, s2=1)
     intermediates = {'x_inter': [x],'pred_x0': []}
 
     for i in trange(len(sigmas) - 1, disable=disable):
-       
+        if i == start_free_step:
+            register_free_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
+            register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
         # macs, params = profile(model, inputs=(x, sigmas[i] * s_in,*extra_args.values(),need_distill_uncond,tmp_list,uncond_list, ))
         prompt_embeds, denoised = model(x, sigmas[i] * s_in, tmp_list=tmp_list,need_distill_uncond=need_distill_uncond,uncond_list=uncond_list, **extra_args)
         if callback is not None:
@@ -629,7 +677,7 @@ def sample_dpmpp_2m(model
                     , disable=None
                     , tmp_list=[]
                     , need_distill_uncond=False
-                    , start_free_step=1
+                    , start_free_step=9
                     , uncond_list=[]
                     , stop_t = None):
     """DPM-Solver++(2M)."""
@@ -640,14 +688,17 @@ def sample_dpmpp_2m(model
     old_denoised = None
     # if need_golden_noise:
     #     x = model.get_golden_noised(x=x,sigma=sigmas[0] * s_in, sigma_nxt=sigmas[1] * s_in,**extra_args)
-    register_free_upblock2d(model.inner_model.pipe, b1=1.0, b2=1.0, s1=1.0, s2=1.0)
-    register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.0, b2=1.0, s1=1.0, s2=1.0)
     intermediates = {'x_inter': [x],'pred_x0': []}
+    register_free_upblock2d(model.inner_model.pipe, b1=1, b2=1, s1=1, s2=1)
+    register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1, b2=1, s1=1, s2=1)
 
     for i in trange(len(sigmas) - 1, disable=disable):
-        if i == start_free_step:
+        if i == start_free_step and len(sigmas) > 6:
             register_free_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
             register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
+        else:
+            register_free_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=1.0, s2=1.0)
+            register_free_crossattn_upblock2d(model.inner_model.pipe, b1=1.1, b2=1.1, s1=1.0, s2=1.0)
         # macs, params = profile(model, inputs=(x, sigmas[i] * s_in,*extra_args.values(),need_distill_uncond,tmp_list,uncond_list, ))
         prompt_embeds, denoised = model(x, sigmas[i] * s_in, tmp_list=tmp_list,need_distill_uncond=need_distill_uncond,uncond_list=uncond_list, **extra_args)
         if callback is not None:
@@ -728,7 +779,7 @@ def main():
     parser.add_argument(
         "--iDDD_stop_steps",
         type=int,
-        default=8,
+        default=6,
         help="number of iDDD sampling steps",
     )
     parser.add_argument(
@@ -816,12 +867,6 @@ def main():
         help="use the free network for inference.",
     )
     parser.add_argument(
-        "--use_free_step",
-        action='store_true',
-        default=-1,
-        help="use the free network for inference.",
-    )
-    parser.add_argument(
         "--use_raw_golden_noise",
         action='store_true',
         default=False,
@@ -875,13 +920,15 @@ def main():
     
     # pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
     vae = AutoencoderKL.from_single_file("./sdxl_vae.safetensors", torch_dtype=DTYPE)
+    vae.to('cuda')
     # pipe = StableDiffusionXLPipeline.from_single_file( "./dreamshaperXL_v21TurboDPMSDE.safetensors",torch_dtype=DTYPE,vae=vae)
     pipe = StableDiffusionXLPipeline.from_pretrained("Lykon/dreamshaper-xl-1-0",torch_dtype=DTYPE,vae=vae)
-    
+    # pipe = StableDiffusionXLPipeline.from_pretrained("stabilityai/stable-diffusion-xl-base-1.0",torch_dtype=torch.float16,vae=vae)
+    pipe.to('cuda')
     npn_net = NPNet128('SDXL', opt.npnet_checkpoint)
     
     
-    pipe.to(device=device, torch_dtype=DTYPE)
+    # pipe.to(device=device, torch_dtype=DTYPE)
     if opt.use_free_net:
         register_free_upblock2d(pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
         register_free_crossattn_upblock2d(pipe, b1=1.1, b2=1.1, s1=0.9, s2=0.2)
@@ -1034,6 +1081,9 @@ def main():
                     
                     
                 shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
+                start_free_step = opt.iDDD_stop_steps
+                fir_stage_sigmas_ct = None
+                sec_stage_sigmas_ct = None
                     # sigmas = model_wrap.get_sigmas(opt.ddim_steps).to(device=device)
                 if opt.iDDD_stop_steps == 4 and not opt.use_retrain and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
@@ -1059,21 +1109,27 @@ def main():
 
                 elif opt.iDDD_stop_steps == 5 and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
-                    sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
+                    sigmas = get_sigmas_karras(8, sigma_min, sigma_max, rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
                     ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[6])
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
                     ct = get_sigmas_karras(6, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
+                    start_free_step = 5
+                    fir_stage_sigmas_ct = sigmas_ct[:-1]
+                    sec_stage_sigmas_ct = sigmas_ct[-2:]
 
                 elif opt.iDDD_stop_steps == 6 and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
-                    sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=6.0, device=device)# 6.0 if 5 else  10.0
+                    sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
-                    ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[7])
+                    ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[6])
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
-                    ct = get_sigmas_karras(6, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                    ct = get_sigmas_karras(7, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
+                    start_free_step = 6
+                    fir_stage_sigmas_ct = sigmas_ct[:-2]
+                    sec_stage_sigmas_ct = sigmas_ct[-3:]
 
                 elif opt.iDDD_stop_steps == 8:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
@@ -1084,10 +1140,10 @@ def main():
                     else:
                         sigmas = get_sigmas_karras(12, sigma_min, sigma_max,rho=12.0, device=device)# 6.0 if 5 else  10.0
                         ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[10])
-                        
+                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[10]), model_wrap.sigma_to_t(sigmas[-1])
                     ct = get_sigmas_karras(opt.iDDD_stop_steps +1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
-
+                    start_free_step = 8
                 elif opt.iDDD_stop_steps == -1:
                     ct = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
@@ -1106,7 +1162,7 @@ def main():
                     ts.append(t)
                     
                 c_in = model_wrap.get_c_ins(sigmas=sigmas_ct)
-                x = torch.randn([opt.n_samples, *shape], device=device) * sigmas_ct[0] # for GPU draw
+                x = torch.randn([opt.n_samples, *shape], device=device) * sigmas_ct[0]
                 model_wrap_cfg = CFGDenoiser(model_wrap)
                 (
                     c,
@@ -1122,20 +1178,55 @@ def main():
 
                 if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
                     x = npn_net(x,c)
+                    
                 extra_args = {'prompt': prompts, 'cond_scale': opt.scale}
                 noise_training_list = {}
-                if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
-                    prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
-                                                                , x
-                                                                , sigmas_ct
-                                                                , extra_args=extra_args
-                                                                , disable=not accelerator.is_main_process
-                                                                , tmp_list=intermediate_photos)
-                                                                #    , stop_t=4)
+                if sec_stage_sigmas_ct is not None and fir_stage_sigmas_ct is not None:
+                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
+                        prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
+                                                                    , x
+                                                                    , fir_stage_sigmas_ct
+                                                                    , extra_args=extra_args
+                                                                    , disable=not accelerator.is_main_process
+                                                                    , tmp_list=intermediate_photos)
+                        _, _, samples_ddim = sample_euler(model_wrap_cfg
+                                                                    , samples_ddim
+                                                                    , sec_stage_sigmas_ct
+                                                                    , extra_args=extra_args
+                                                                    , disable=not accelerator.is_main_process
+                                                                    , s_noise = 0.3
+                                                                    , tmp_list=intermediate_photos)
+                    else: 
+                        prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_2m(model_wrap_cfg
+                                                                    , x
+                                                                    , fir_stage_sigmas_ct
+                                                                    , extra_args=extra_args
+                                                                    , disable=not accelerator.is_main_process
+                                                                    , tmp_list=intermediate_photos)
+                        _, _, samples_ddim = sample_dpmpp_sde(model_wrap_cfg
+                                                                    , samples_ddim
+                                                                    , sec_stage_sigmas_ct
+                                                                    , extra_args=extra_args
+                                                                    , disable=not accelerator.is_main_process
+                                                                    , tmp_list=intermediate_photos)
                 else:
-                    prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_2m(model_wrap_cfg, x, sigmas_ct , extra_args=extra_args, disable=not accelerator.is_main_process, tmp_list=intermediate_photos)
+                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
+                        prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
+                                                                            , x
+                                                                            , sigmas_ct
+                                                                            , extra_args=extra_args
+                                                                            , disable=not accelerator.is_main_process
+                                                                            , tmp_list=intermediate_photos)
+                                                                #    , stop_t=4)
+                    else:
+                        prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_2m(model_wrap_cfg
+                                                                                 , x
+                                                                                 , sigmas_ct 
+                                                                                 , extra_args=extra_args
+                                                                                 , start_free_step=start_free_step
+                                                                                 , disable=not accelerator.is_main_process
+                                                                                 , tmp_list=intermediate_photos)
                         # print('2m')
-                        
                 x_samples_ddim = pipe.vae.decode(samples_ddim / pipe.vae.config.scaling_factor).sample
                 x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
 
