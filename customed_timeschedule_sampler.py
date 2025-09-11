@@ -405,13 +405,26 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
     return intermediates, x
 
 @torch.no_grad()
-def sample_dpmpp_ode(model, x, sigmas, need_golden_noise = False, extra_args=None, callback=None, disable=None,tmp_list=[],need_distill_uncond=False,uncond_list=[],noise_training_list={}):
+def sample_dpmpp_ode(model
+                     , x
+                     , sigmas
+                     , need_golden_noise = False
+                     , extra_args=None
+                     , callback=None
+                     , disable=None
+                     , start_free_step = 1
+                     , pipe = None
+                     , tmp_list=[]
+                     , need_distill_uncond=False
+                     , uncond_list=[]
+                     , noise_training_list={}):
     """DPM-Solver++."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     sigma_fn = lambda t: t.neg().exp()
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
+
     if True:
         x = model.get_golden_noised(x=x,sigma=sigmas[0] * s_in, sigma_nxt=(sigmas[0] - 0.28) * s_in, noise_training_list=noise_training_list,**extra_args)
     intermediates = {'x_inter': [x],'pred_x0': []}
@@ -435,7 +448,17 @@ def sample_dpmpp_ode(model, x, sigmas, need_golden_noise = False, extra_args=Non
     return intermediates,x
 
 @torch.no_grad()
-def sample_dpmpp_sde(model, need_golden_noise,x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None, r=1 / 2):
+def sample_dpmpp_sde(model
+                     , need_golden_noise
+                     , x
+                     , sigmas
+                     , extra_args=None
+                     , callback=None
+                     , disable=None
+                     , eta=1.
+                     , s_noise=1.
+                     , noise_sampler=None
+                     , r=1 / 2):
     """DPM-Solver++ (stochastic)."""
     sigma_min, sigma_max = sigmas[sigmas > 0].min(), sigmas.max()
     noise_sampler = BrownianTreeNoiseSampler(x, sigma_min, sigma_max) if noise_sampler is None else noise_sampler
@@ -620,7 +643,7 @@ def main():
     parser.add_argument(
         "--iDDD_stop_steps",
         type=int,
-        default=5,
+        default=6,
         help="number of iDDD sampling steps",
     )
     parser.add_argument(
@@ -662,13 +685,13 @@ def main():
     parser.add_argument(
         "--scale",
         type=float,
-        default=5,
+        default=5.5,
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     parser.add_argument(
         "--from-file",
         type=str,
-        default='./instances_val2014.json',
+        default='./instances_val2017.json',
         help="if specified, load prompts from this file",
     )
     parser.add_argument(
@@ -812,7 +835,7 @@ def main():
     else:
         print(f"reading prompts from {opt.from_file}")
         coco_annotation_file_path = opt.from_file
-        coco_caption_file_path = './captions_val2014.json'
+        coco_caption_file_path = './captions_val2017.json'
         coco_annotation = COCO(annotation_file=coco_annotation_file_path)
         coco_caption = COCO(annotation_file=coco_caption_file_path)
         query_names = [] #['cup','broccoli','dining table','toaster','carrot','toilet','sink','fork','hot dog','knife','pizza','spoon','donut','clock','bowl','cake','vase','banana','scissors','couch','apple','sandwich','potted plant','microwave','orange','bed','oven']
@@ -891,12 +914,14 @@ def main():
             folder_name += "-rawGoldenNoise"
         sample_path = os.path.join(outpath, folder_name)
     # npn_net = NPNet64('SD1.5', opt.npnet_checkpoint)
-    
+    intermediate_path = os.path.join(outpath, f'intermediate-{opt.ddim_steps}-{opt.scale}')
+    final_x0_path = os.path.join(outpath, f'final_x0-{opt.ddim_steps}-{opt.scale}')
     os.makedirs(sample_path, exist_ok=True)
-    
-    
+    os.makedirs(intermediate_path, exist_ok=True)
+    os.makedirs(final_x0_path, exist_ok=True)
+
     base_count = len(os.listdir(sample_path))
-    
+    direct_distill_intermediate_count = 0
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     with torch.no_grad():
         with precision_scope("cuda"):
@@ -951,7 +976,7 @@ def main():
                         naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
                         # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                         # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
-                    elif opt.iDDD_stop_steps == 5 and not opt.force_not_use_ct:
+                    elif (opt.iDDD_stop_steps == 5 or (opt.iDDD_stop_steps == 6 and opt.use_raw_golden_noise))and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -965,6 +990,14 @@ def main():
                         naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
                         # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                         # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
+                    elif opt.iDDD_stop_steps == 6 and not opt.force_not_use_ct:
+                        sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
+                        sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
+                    
+                        ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[6])
+                        # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
+                        ct = get_sigmas_karras(7, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                        sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
                     elif opt.iDDD_stop_steps == 8:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         if not opt.use_8full_trcik:
@@ -1001,10 +1034,10 @@ def main():
                     for sigma in sigmas_ct:
                         t = model_wrap.sigma_to_t(sigma)
                         ts.append(t)
-                    naf_ts = []
-                    for naf_sigma in naf_sigmas_ct:
-                        t = model_wrap.sigma_to_t(naf_sigma)
-                        naf_ts.append(t)
+                    # naf_ts = []
+                    # for naf_sigma in naf_sigmas_ct:
+                    #     t = model_wrap.sigma_to_t(naf_sigma)
+                    #     naf_ts.append(t)
                     c_in = model_wrap.get_c_ins(sigmas=sigmas_ct)
                     x = torch.randn([opt.n_samples, *shape], device=device) * sigmas_ct[0] # for GPU draw
                     if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
@@ -1036,25 +1069,17 @@ def main():
                                 os.path.join(sample_path, f"{base_count:05}.png"))
                             base_count += 1
 
-                    # for idx,imgs in enumerate(intermediate_photos):
-                    #     if idx > 6:
-                    #         continue
-                    #     tmp_photos = guide_distill['x_inter'][-1] #if idx < len(guide_distill['pred_x0']) else intermediate_photos[-1]
-                    #     for secidx,img in enumerate(imgs['tmp_z']):
-                    #         img = img.permute(1,2,0)
-                    #         torch.save(img,os.path.join(intermediate_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
-                    #     for secidx,img in enumerate(imgs['tmp_x0']):
-                    #         img = img.permute(1,2,0)
-                    #         torch.save(img,os.path.join(tmp_x0_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
-                        
-                    #     for secidx,img in enumerate(tmp_photos):
-                    #         img = img.permute(1,2,0)
-                    #         torch.save(img,os.path.join(final_x0_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
-                    #     for secidx,prompt in enumerate(c):
-                    #         torch.save(prompt,os.path.join(prompt_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
-                    #     for secidx,prompt in enumerate(uc):
-                    #         torch.save(prompt,os.path.join(negative_prompt_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
-                    #     direct_distill_intermediate_count += 1
+                    for idx,imgs in enumerate(guide_distill['x_inter']):
+                        if idx > 6:
+                            continue
+                        tmp_photos = guide_distill['x_inter'][-1] #if idx < len(guide_distill['pred_x0']) else intermediate_photos[-1]
+                        for secidx,img in enumerate(imgs):
+                            img = img.permute(1,2,0)
+                            torch.save(img,os.path.join(intermediate_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
+                        for secidx,img in enumerate(tmp_photos):
+                            img = img.permute(1,2,0)
+                            torch.save(img,os.path.join(final_x0_path, f"{direct_distill_intermediate_count:05}_{(int(ts[idx])):05}.pth"))
+                        direct_distill_intermediate_count += 1
                             
 
 

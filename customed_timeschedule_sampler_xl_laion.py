@@ -773,7 +773,7 @@ def main():
         type=str,
         nargs="?",
         help="dir to write results to",
-        default="./gen_img_val_xl"
+        default="./gen_img_val_xl_laion"
     )
     parser.add_argument(
         "--skip_save",
@@ -837,7 +837,7 @@ def main():
     parser.add_argument(
         "--from-file",
         type=str,
-        default='./instances_val2014.json',
+        default='./extracted_texts_10k.txt',
         help="if specified, load prompts from this file",
     )
     parser.add_argument(
@@ -985,57 +985,37 @@ def main():
 
     else:
         print(f"reading prompts from {opt.from_file}")
-        coco_annotation_file_path = opt.from_file
-        coco_caption_file_path = './captions_val2014.json'
-        coco_annotation = COCO(annotation_file=coco_annotation_file_path)
-        coco_caption = COCO(annotation_file=coco_caption_file_path)
-        query_names = [] #['cup','broccoli','dining table','toaster','carrot','toilet','sink','fork','hot dog','knife','pizza','spoon','donut','clock','bowl','cake','vase','banana','scissors','couch','apple','sandwich','potted plant','microwave','orange','bed','oven']
-        unselect_names = [] # ['person','airplane','bird','mouse','cat','dog','horse','clock']
-
-        # 获取包含指定类别的图像ID
-        query_ids = []
-        img_ids = coco_annotation.getImgIds()
-        # for query_name in query_names:
-        # query_ids += coco_annotation.getCatIds(catNms=query_names)
-        # for query_id in query_ids:
-        #     img_ids += coco_annotation.getImgIds(catIds=query_id)
-
-        # 获取包含不需要类别的图像ID
-        unselect_id = []
-        unselect_img_ids = []
-        for unselect_name in unselect_names:
-            unselect_id += coco_annotation.getCatIds(catNms=[unselect_name])
-            unselect_img_ids += coco_annotation.getImgIds(catIds=unselect_id)
-
-        # 过滤掉包含不需要类别的图像ID
-        real_img_ids = [item for item in img_ids if item not in unselect_img_ids]
-        random.shuffle(real_img_ids)
-        
-        real_img_ids = real_img_ids[0:10000]
-
-        # 获取这些图像的caption ID
-        caption_ids = coco_caption.getAnnIds(imgIds=real_img_ids)
-
-        # 获取并显示这些图像的captions
-        captions = coco_caption.loadAnns(caption_ids)
-        tmp_caption = []
-        for idx,caption in enumerate(captions):
-            if idx % 5 != 0:
-                continue
-            tmp_caption.append(caption)
-        captions = tmp_caption
-        
-        data = list(map(lambda x: x['caption'], captions))
-        data = data[(0):10000]
-        images = coco_caption.loadImgs(ids=real_img_ids)
-        folder_name = 'E:\\txt2img-samples\\scls_coco_img_val_random'
-        img_path = 'D:\\research_project\\archive(2)\\coco2017\\images\\val2014'
-        # if not os.path.exists(folder_name):
-        #     os.makedirs(name=folder_name,exist_ok=True)
-        #     img_file_name = [ img['file_name'] for img in images ]
-        #     for filename in os.listdir(path=img_path):
-        #         if filename in img_file_name:
-        #             shutil.copy(os.path.join(img_path, filename), folder_name)
+        # Read captions from text file with format "Image XXXXX: caption"
+        data = []
+        try:
+            with open(opt.from_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                
+            for line in lines:
+                line = line.strip()
+                if line and ':' in line:
+                    # Split on first colon to get the caption part
+                    parts = line.split(':', 1)
+                    if len(parts) == 2:
+                        caption = parts[1].strip()
+                        if caption:  # Only add non-empty captions
+                            data.append(caption)
+            
+            print(f"Loaded {len(data)} captions from {opt.from_file}")
+            
+            # Limit to 10000 captions if more are available
+            if len(data) > 10000:
+                data = data[:10000]
+                print(f"Limited to first 10000 captions")
+                
+        except FileNotFoundError:
+            print(f"Error: Could not find file {opt.from_file}")
+            print("Falling back to default prompt...")
+            data = ["a beautiful landscape"]
+        except Exception as e:
+            print(f"Error reading file {opt.from_file}: {e}")
+            print("Falling back to default prompt...")
+            data = ["a beautiful landscape"]
 
     if opt.iDDD_stop_steps !=-1:
         folder_name = f"samples-iDDDXL{opt.iDDD_stop_steps}"
