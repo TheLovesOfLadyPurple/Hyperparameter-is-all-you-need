@@ -86,7 +86,7 @@ def calculate_clip_score(image_files, prompts, batch_size=50):
 
 def main():
     parser = argparse.ArgumentParser(description='Calculate CLIP score for images and text pairs')
-    parser.add_argument('--image_folder', type=str, required=False, default='E:\\research_project\\NAFNet\\gen_img_val_flash_2017\\samples-flash6',
+    parser.add_argument('--image_folder', type=str, required=False, default='D:\\2017val6Real\\gen_img_val_v15_2017\\samples-iDDD6-retrain-free-notNPNet-full-trick-4-5.5',
                        help='Path to folder containing images (e.g., gen_img_val_v15/samples-iDDD5-retrain-free-full-trick-4-5)')
     parser.add_argument('--text_folder', type=str, default='saved_txts_2017',
                        help='Path to folder containing text files (default: saved_txts)')

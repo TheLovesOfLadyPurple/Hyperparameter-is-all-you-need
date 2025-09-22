@@ -787,10 +787,10 @@ def main():
         help="number of ddim sampling steps",
     )
     parser.add_argument(
-        "--iDDD_stop_steps",
+        "--stop_steps",
         type=int,
         default=6,
-        help="number of iDDD sampling steps",
+        help="number of stop sampling steps",
     )
     parser.add_argument(
         "--n_iter",
@@ -846,12 +846,7 @@ def main():
         default='./sdxl.pth',
         help="if specified, load prompts from this file",
     )
-    parser.add_argument(
-        "--naf-opt",
-        type=str,
-        default= 'options/test/improved-DDD/XABWithPromptNAF-SDXValL.yml', #'options/test/improved-DDD/LCMXABWithPromptNAFVal-ReTrain4.yml',#'options/test/improved-DDD/LCMXABWithPromptNAFVal.yml',
-        help="if specified, load prompts from this file",
-    )
+    
     parser.add_argument(
         "--use_free_net",
         action='store_true',
@@ -913,7 +908,7 @@ def main():
         choices=["full", "autocast"],
         default="autocast"
     )
-    # login("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") # login to HuggingFace Hub
+    
     opt = parser.parse_args()
 
     accelerator = accelerate.Accelerator()
@@ -1037,8 +1032,8 @@ def main():
         #         if filename in img_file_name:
         #             shutil.copy(os.path.join(img_path, filename), folder_name)
 
-    if opt.iDDD_stop_steps !=-1:
-        folder_name = f"samples-iDDDXL{opt.iDDD_stop_steps}"
+    if opt.stop_steps !=-1:
+        folder_name = f"samples-customedXL-{opt.stop_steps}"
         if  opt.use_retrain:
             folder_name += "-retrain"
         if opt.use_free_net:
@@ -1055,7 +1050,7 @@ def main():
         folder_name +=f"-{opt.inner_lcm_step}"
         folder_name +=f"-{opt.scale}"
         sample_path = os.path.join(outpath, folder_name)
-    elif opt.iDDD_stop_steps == -1:
+    elif opt.stop_steps == -1:
         folder_name = f"samples-org-{opt.ddim_steps}"
         if opt.use_free_net:
             folder_name += "-free"
@@ -1092,11 +1087,11 @@ def main():
                     
                     
                 shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
-                start_free_step = opt.iDDD_stop_steps
+                start_free_step = opt.stop_steps
                 fir_stage_sigmas_ct = None
                 sec_stage_sigmas_ct = None
                     # sigmas = model_wrap.get_sigmas(opt.ddim_steps).to(device=device)
-                if opt.iDDD_stop_steps == 4 and not opt.use_retrain and not opt.force_not_use_ct:
+                if opt.stop_steps == 4 and not opt.use_retrain and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -1107,7 +1102,7 @@ def main():
 
                         # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                         # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
-                elif opt.iDDD_stop_steps == 4 and opt.use_retrain and not opt.force_not_use_ct:
+                elif opt.stop_steps == 4 and opt.use_retrain and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     if opt.use_free_net:
                         sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=3.25, device=device)# 6.0 if 5 else  10.0
@@ -1118,7 +1113,7 @@ def main():
                     ct = get_sigmas_karras(5, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
 
-                elif (opt.iDDD_stop_steps == 5 or (opt.iDDD_stop_steps == 6 and opt.use_raw_golden_noise)) and not opt.force_not_use_ct:
+                elif (opt.stop_steps == 5 or (opt.stop_steps == 6 and opt.use_raw_golden_noise)) and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     sigmas = get_sigmas_karras(8, sigma_min, sigma_max, rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -1130,7 +1125,7 @@ def main():
                     fir_stage_sigmas_ct = sigmas_ct[:-1]
                     sec_stage_sigmas_ct = sigmas_ct[-2:]
 
-                elif opt.iDDD_stop_steps == 6 and not opt.force_not_use_ct:
+                elif opt.stop_steps == 6 and not opt.force_not_use_ct:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -1142,29 +1137,29 @@ def main():
                     fir_stage_sigmas_ct = sigmas_ct[:-2]
                     sec_stage_sigmas_ct = sigmas_ct[-3:]
 
-                elif opt.iDDD_stop_steps == 8:
+                elif opt.stop_steps == 8:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     if not opt.use_8full_trcik:
                         sigmas = get_sigmas_karras(12, sigma_min, sigma_max,rho=12.0, device=device)# 6.0 if 5 else  10.0
                         ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[9])
-                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[9]), model_wrap.sigma_to_t(sigmas[-1])
+                        
                     else:
                         sigmas = get_sigmas_karras(12, sigma_min, sigma_max,rho=12.0, device=device)# 6.0 if 5 else  10.0
                         ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[10])
-                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[10]), model_wrap.sigma_to_t(sigmas[-1])
-                    ct = get_sigmas_karras(opt.iDDD_stop_steps +1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                        
+                    ct = get_sigmas_karras(opt.stop_steps +1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
                     start_free_step = 8
-                elif opt.iDDD_stop_steps == -1:
+                elif opt.stop_steps == -1:
                     ct = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
                 else:
                     sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                     sigmas = get_sigmas_karras(opt.ddim_steps, sigma_min, sigma_max,rho=12.0, device=device)# 6.0 if 5 else  10.0
 
-                    ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[opt.iDDD_stop_steps])
+                    ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[opt.stop_steps])
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
-                    ct = get_sigmas_karras(opt.iDDD_stop_steps + 1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                    ct = get_sigmas_karras(opt.stop_steps + 1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                     sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
 
                 ts = []
@@ -1187,19 +1182,19 @@ def main():
                 )
                     # prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)
 
-                if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
+                if (opt.stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
                     x = npn_net(x,c)
                     
                 extra_args = {'prompt': prompts, 'cond_scale': opt.scale}
                 noise_training_list = {}
                 if sec_stage_sigmas_ct is not None and fir_stage_sigmas_ct is not None:
-                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
+                    if (opt.stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.stop_steps == 8 or opt.stop_steps == 7):
                         prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
                                                                     , x
                                                                     , fir_stage_sigmas_ct
                                                                     , extra_args=extra_args
                                                                     , disable=not accelerator.is_main_process
-                                                                    , need_raw_noise=opt.iDDD_stop_steps == 6 and opt.use_raw_golden_noise
+                                                                    , need_raw_noise=opt.stop_steps == 6 and opt.use_raw_golden_noise
                                                                     , tmp_list=intermediate_photos)
                         _, _, samples_ddim = sample_euler(model_wrap_cfg
                                                                     , samples_ddim
@@ -1222,13 +1217,13 @@ def main():
                                                                     , disable=not accelerator.is_main_process
                                                                     , tmp_list=intermediate_photos)
                 else:
-                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
+                    if (opt.stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.stop_steps == 8 or opt.stop_steps == 7):
                         prompt_embeds, guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
                                                                             , x
                                                                             , sigmas_ct
                                                                             , extra_args=extra_args
                                                                             , disable=not accelerator.is_main_process
-                                                                            , need_raw_noise=opt.iDDD_stop_steps == 6 and opt.use_raw_golden_noise
+                                                                            , need_raw_noise=opt.stop_steps == 6 and opt.use_raw_golden_noise
                                                                             , tmp_list=intermediate_photos)
                                                                 #    , stop_t=4)
                     else:

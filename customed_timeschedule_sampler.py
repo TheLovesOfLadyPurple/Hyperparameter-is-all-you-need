@@ -425,7 +425,7 @@ def sample_dpmpp_ode(model
     t_fn = lambda sigma: sigma.log().neg()
     old_denoised = None
 
-    if True:
+    if False: #need_golden_noise:
         x = model.get_golden_noised(x=x,sigma=sigmas[0] * s_in, sigma_nxt=(sigmas[0] - 0.28) * s_in, noise_training_list=noise_training_list,**extra_args)
     intermediates = {'x_inter': [x],'pred_x0': []}
 
@@ -555,37 +555,6 @@ def sample_dpmpp_2m(model
         # intermediates['noise'].append(denoised_d)
     return intermediates,x
 
-@torch.no_grad()
-def sample_dpmpp_2m_for_NAF(model
-                    , x
-                    , sigmas
-                    , ts
-                    , extra_args=None
-                    , callback=None
-                    , disable=None):
-    """DPM-Solver++(2M)."""
-    extra_args = {} if extra_args is None else extra_args
-    s_in = x.new_ones([x.shape[0]])
-    sigma_fn = lambda t: t.neg().exp()
-    t_fn = lambda sigma: sigma.log().neg()
-    old_denoised = None
-        
-    for i in trange(len(sigmas) - 1, disable=disable):
-        model.ODEInference_gpu(ts[i].unsqueeze(dim=0), x,inner_step=1,prompt=extra_args['cond'])
-        denoised = model.get_current_visuals()['result'].to(device='cuda',dtype=torch.float32)
-        if callback is not None:
-            callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
-        t, t_next = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
-        h = t_next - t
-        if old_denoised is None or sigmas[i + 1] == 0:
-            x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised
-        else:
-            h_last = t - t_fn(sigmas[i - 1])
-            r = h_last / h
-            denoised_d = (1 + 1 / (2 * r)) * denoised - (1 / (2 * r)) * old_denoised
-            x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_d
-        old_denoised = denoised
-    return x
 
 # Adapted from pipelines.StableDiffusionPipeline.encode_prompt
 def encode_prompt(prompt_batch, text_encoder, tokenizer, proportion_empty_prompts, is_train=True):
@@ -641,10 +610,10 @@ def main():
         help="number of ddim sampling steps",
     )
     parser.add_argument(
-        "--iDDD_stop_steps",
+        "--stop_steps",
         type=int,
-        default=6,
-        help="number of iDDD sampling steps",
+        default=8,
+        help="number of stop sampling steps",
     )
     parser.add_argument(
         "--n_iter",
@@ -691,7 +660,7 @@ def main():
     parser.add_argument(
         "--from-file",
         type=str,
-        default='./instances_val2017.json',
+        default='./instances_val2014.json',
         help="if specified, load prompts from this file",
     )
     parser.add_argument(
@@ -700,16 +669,11 @@ def main():
         default='./HPSFilterFix.pth',
         help="if specified, load prompts from this file",
     )
-    parser.add_argument(
-        "--naf-opt",
-        type=str,
-        default= 'options/test/improved-DDD/LCMXABWithPromptNAFVal.yml', #'options/test/improved-DDD/LCMXABWithPromptNAFVal-ReTrain4.yml',#'options/test/improved-DDD/LCMXABWithPromptNAFVal.yml',
-        help="if specified, load prompts from this file",
-    )
+    
     parser.add_argument(
         "--use_free_net",
         action='store_true',
-        default=True,
+        default=False,
         help="use the free network for inference.",
     )
     parser.add_argument(
@@ -767,7 +731,7 @@ def main():
         choices=["full", "autocast"],
         default="autocast"
     )
-    # login("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") # login to HuggingFace Hub
+    
     opt = parser.parse_args()
 
     accelerator = accelerate.Accelerator()
@@ -783,7 +747,8 @@ def main():
     # pipe = StableDiffusionPipeline.from_single_file( "./counterfeit/Counterfeit-V3.0_fp32.safetensors")
     
     # pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
-    pipe = StableDiffusionPipeline.from_single_file( "./v1-5-pruned-emaonly.safetensors")
+    pipe = StableDiffusionPipeline.from_pretrained('sd-legacy/stable-diffusion-v1-5')
+    # pipe = StableDiffusionPipeline.from_single_file( "./v1-5-pruned-emaonly.safetensors")
     
     npn_net = NPNet64('SD1.5', opt.npnet_checkpoint)
     
@@ -835,7 +800,7 @@ def main():
     else:
         print(f"reading prompts from {opt.from_file}")
         coco_annotation_file_path = opt.from_file
-        coco_caption_file_path = './captions_val2017.json'
+        coco_caption_file_path = './captions_val2014.json'
         coco_annotation = COCO(annotation_file=coco_annotation_file_path)
         coco_caption = COCO(annotation_file=coco_caption_file_path)
         query_names = [] #['cup','broccoli','dining table','toaster','carrot','toilet','sink','fork','hot dog','knife','pizza','spoon','donut','clock','bowl','cake','vase','banana','scissors','couch','apple','sandwich','potted plant','microwave','orange','bed','oven']
@@ -886,8 +851,8 @@ def main():
         #         if filename in img_file_name:
         #             shutil.copy(os.path.join(img_path, filename), folder_name)
 
-    if opt.iDDD_stop_steps !=-1:
-        folder_name = f"samples-iDDD{opt.iDDD_stop_steps}"
+    if opt.stop_steps !=-1:
+        folder_name = f"samples-customed-{opt.stop_steps}"
         if  opt.use_retrain:
             folder_name += "-retrain"
         if opt.use_free_net:
@@ -904,7 +869,7 @@ def main():
         folder_name +=f"-{opt.inner_lcm_step}"
         folder_name +=f"-{opt.scale}"
         sample_path = os.path.join(outpath, folder_name)
-    elif opt.iDDD_stop_steps == -1:
+    elif opt.stop_steps == -1:
         folder_name = f"samples-org-{opt.ddim_steps}"
         if opt.use_free_net:
             folder_name += "-free"
@@ -929,7 +894,6 @@ def main():
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling", disable =not accelerator.is_main_process):
                 for prompts in tqdm(data, desc="data", disable=not accelerator.is_main_process):
-                    
                     # torch.cuda.empty_cache()
                     intermediate_photos = list()
                     # prompts = prompts[0]
@@ -949,7 +913,7 @@ def main():
                     c =  encoded_text.pop("prompt_embeds")
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     # sigmas = model_wrap.get_sigmas(opt.ddim_steps).to(device=device)
-                    if opt.iDDD_stop_steps == 4 and not opt.use_retrain and not opt.force_not_use_ct:
+                    if opt.stop_steps == 4 and not opt.use_retrain and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -960,7 +924,7 @@ def main():
 
                         # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                         # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
-                    elif opt.iDDD_stop_steps == 4 and opt.use_retrain and not opt.force_not_use_ct:
+                    elif opt.stop_steps == 4 and opt.use_retrain and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         if opt.use_free_net:
                             sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=2, device=device)# 6.0 if 5 else  10.0
@@ -971,12 +935,7 @@ def main():
                         ct = get_sigmas_karras(5, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
 
-                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[6]), model_wrap.sigma_to_t(sigmas[-1])
-                        naf_ct = get_sigmas_karras(4, naf_ct_end.item(), naf_ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
-                        naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
-                        # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
-                        # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
-                    elif (opt.iDDD_stop_steps == 5 or (opt.iDDD_stop_steps == 6 and opt.use_raw_golden_noise))and not opt.force_not_use_ct:
+                    elif (opt.stop_steps == 5 or (opt.stop_steps == 6 and opt.use_raw_golden_noise))and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -985,12 +944,7 @@ def main():
                         ct = get_sigmas_karras(6, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
 
-                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[6]), model_wrap.sigma_to_t(sigmas[-1])
-                        naf_ct = get_sigmas_karras(4, naf_ct_end.item(), naf_ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
-                        naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
-                        # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
-                        # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
-                    elif opt.iDDD_stop_steps == 6 and not opt.force_not_use_ct:
+                    elif opt.stop_steps == 6 and not opt.force_not_use_ct:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         sigmas = get_sigmas_karras(8, sigma_min, sigma_max,rho=5.0, device=device)# 6.0 if 5 else  10.0
                     
@@ -998,54 +952,43 @@ def main():
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
                         ct = get_sigmas_karras(7, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
-                    elif opt.iDDD_stop_steps == 8:
+                    elif opt.stop_steps == 8:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         if not opt.use_8full_trcik:
                             sigmas = get_sigmas_karras(12, sigma_min, sigma_max,rho=7.0, device=device)# 6.0 if 5 else  10.0
                             ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[8])
-                            naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[8]), model_wrap.sigma_to_t(sigmas[-1])
+                            
                         else:
                             sigmas = get_sigmas_karras(12, sigma_min, sigma_max,rho=7.0, device=device)# 6.0 if 5 else  10.0
                             ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[9])
-                            naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[9]), model_wrap.sigma_to_t(sigmas[-1])
-                        ct = get_sigmas_karras(opt.iDDD_stop_steps +1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                            
+                        ct = get_sigmas_karras(opt.stop_steps +1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
-
-                        naf_ct = get_sigmas_karras(4, naf_ct_end.item(), naf_ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
-                        naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
-                    elif opt.iDDD_stop_steps == -1:
+                    elif opt.stop_steps == -1:
                         ct = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
                     else:
                         sigma_min, sigma_max = model_wrap.sigmas[0].item(), model_wrap.sigmas[-1].item()
                         sigmas = get_sigmas_karras(opt.ddim_steps, sigma_min, sigma_max,rho=10.0, device=device)# 6.0 if 5 else  10.0
 
-                        ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[opt.iDDD_stop_steps])
+                        ct_start, ct_end = model_wrap.sigma_to_t(sigmas[0]), model_wrap.sigma_to_t(sigmas[opt.stop_steps])
                         # sigma_kct_start, sigma_kct_end = sigmas[0].item(), sigmas[5].item()
-                        ct = get_sigmas_karras(opt.iDDD_stop_steps + 1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
+                        ct = get_sigmas_karras(opt.stop_steps + 1, ct_end.item(), ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
                         sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(ct).to(device=device)
 
-                        naf_ct_start, naf_ct_end = model_wrap.sigma_to_t(sigmas[opt.iDDD_stop_steps]), model_wrap.sigma_to_t(sigmas[-1])
-                        naf_ct = get_sigmas_karras(4, naf_ct_end.item(), naf_ct_start.item(),rho=1.2, device='cpu',need_append_zero=False).numpy()
-                        naf_sigmas_ct = model_wrap.get_special_sigmas_with_timesteps(naf_ct).to(device=device)
-                        # timesteps = get_sigmas_karras(opt.ddim_steps, 1, 999,rho=1.2, device=device).to('cpu').numpy()
-                        # sigmas = model_wrap.get_special_sigmas_with_timesteps(timesteps)
                     ts = []
                     for sigma in sigmas_ct:
                         t = model_wrap.sigma_to_t(sigma)
                         ts.append(t)
-                    # naf_ts = []
-                    # for naf_sigma in naf_sigmas_ct:
-                    #     t = model_wrap.sigma_to_t(naf_sigma)
-                    #     naf_ts.append(t)
+                        
                     c_in = model_wrap.get_c_ins(sigmas=sigmas_ct)
                     x = torch.randn([opt.n_samples, *shape], device=device) * sigmas_ct[0] # for GPU draw
-                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
+                    if (opt.stop_steps != -1 or opt.ddim_steps <= 8) and not opt.force_not_use_NPNet:
                         x = npn_net(x,c)
                     model_wrap_cfg = CFGDenoiser(model_wrap)
                     extra_args = {'cond': c, 'uncond': uc, 'cond_scale': opt.scale}
                     noise_training_list = {}
-                    if (opt.iDDD_stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.iDDD_stop_steps == 8 or opt.iDDD_stop_steps == 7):
+                    if (opt.stop_steps != -1 or opt.ddim_steps <= 10) and not (opt.stop_steps == 8 or opt.stop_steps == 7):
                         guide_distill, samples_ddim = sample_dpmpp_ode(model_wrap_cfg
                                                                     , x
                                                                     , sigmas_ct
@@ -1056,7 +999,13 @@ def main():
                                                                     , noise_training_list=noise_training_list)
                                                                 #    , stop_t=4)
                     else:
-                        guide_distill, samples_ddim = sample_dpmpp_2m(model_wrap_cfg, x, sigmas_ct, need_golden_noise = opt.use_raw_golden_noise , extra_args=extra_args, disable=not accelerator.is_main_process, tmp_list=intermediate_photos)
+                        guide_distill, samples_ddim = sample_dpmpp_2m(model_wrap_cfg
+                                                                      , x
+                                                                      , sigmas_ct
+                                                                      , need_golden_noise = opt.use_raw_golden_noise 
+                                                                      , extra_args=extra_args
+                                                                      , disable=not accelerator.is_main_process
+                                                                      , tmp_list=intermediate_photos)
                         # print('2m')
                         
                     x_samples_ddim = pipe.vae.decode(samples_ddim / pipe.vae.config.scaling_factor).sample

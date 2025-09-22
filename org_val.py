@@ -66,7 +66,7 @@ def main():
     parser.add_argument(
         "--ddim_steps",
         type=int,
-        default=20,
+        default=5,
         help="number of ddim sampling steps",
     )
     parser.add_argument(
@@ -120,7 +120,7 @@ def main():
     parser.add_argument(
         "--from-file",
         type=str,
-        default='./instances_val2014.json',
+        default='./instances_val2017.json',
         help="if specified, load prompts from this file",
     )
     parser.add_argument(
@@ -225,7 +225,7 @@ def main():
     else:
         print(f"reading prompts from {opt.from_file}")
         coco_annotation_file_path = opt.from_file
-        coco_caption_file_path = './captions_val2014.json'
+        coco_caption_file_path = './captions_val2017.json'
         coco_annotation = COCO(annotation_file=coco_annotation_file_path)
         coco_caption = COCO(annotation_file=coco_caption_file_path)
         query_names = [] #['cup','broccoli','dining table','toaster','carrot','toilet','sink','fork','hot dog','knife','pizza','spoon','donut','clock','bowl','cake','vase','banana','scissors','couch','apple','sandwich','potted plant','microwave','orange','bed','oven']
@@ -282,7 +282,7 @@ def main():
         folder_name += "-free"
     if opt.force_not_use_NPNet:
         folder_name += "-notNPNet"
-    W, H = 1024, 1024
+    W, H = 512, 512
     sample_path = os.path.join(outpath, folder_name)
     os.makedirs(sample_path, exist_ok=True)
     
@@ -291,7 +291,7 @@ def main():
     
     precision_scope = autocast if opt.precision=="autocast" else nullcontext
     with torch.no_grad():
-        # with precision_scope("cuda"):
+        with precision_scope("cuda"):
             tic = time.time()
             all_samples = list()
             for n in trange(opt.n_iter, desc="Sampling", disable =not accelerator.is_main_process):
@@ -313,11 +313,10 @@ def main():
                                           ,num_inference_steps=opt.ddim_steps
                                           ,guidance_scale=opt.scale
                                           ,height=H
-                                          ,width=W
-                                          ,output_type='latent').images
+                                          ,width=W).images
                     if True:
-                        x_samples_ddim = pipe.vae.decode(samples_ddim / pipe.vae.config.scaling_factor).sample
-                        for x_sample in x_samples_ddim:
+                        # x_samples_ddim = pipe.vae.decode(samples_ddim / pipe.vae.config.scaling_factor).sample
+                        for x_sample in samples_ddim:
                             # x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                             x_sample.save(os.path.join(sample_path, f"{base_count:05}.png"))
                             base_count += 1
