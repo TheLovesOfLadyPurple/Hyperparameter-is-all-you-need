@@ -43,7 +43,7 @@ python txt2imgOrg.py --prompt "a virus monster is playing guitar, oil on canvas"
 ## Text to Image ACGN version
 using the following command to generate images from the new solver:
 
-<img src=gen_img_val_v15/samples-customed-8-free-notNPNet-full-trick-7.5/00002.png width=768 />
+<img src=gen_img_val_v15/samples-customed-8-free-notNPNet-full-trick-7.5/00002.png width=512 />
 
 ```
 python txt2imgACGN.py --prompt "((masterpiece,best quality)) , 1girl, ((school uniform)),brown blazer, black skirt,small breasts,necktie,red plaid skirt,looking at viewer" --ddim_steps 20 --n_samples 4 --n_iter 1 --scale 7.5 --W 768 --H 1024 --use_free
@@ -51,7 +51,7 @@ python txt2imgACGN.py --prompt "((masterpiece,best quality)) , 1girl, ((school u
 
 using the following command to generate images from the original solver:
 
-<img src=gen_img_val_v15/samples-org-20-free-notNPNet/00002.png width=768 />
+<img src=gen_img_val_v15/samples-org-20-free-notNPNet/00002.png width=512 />
 
 ```
  python txt2imgOrg.py --prompt "((masterpiece,best quality)) , 1girl, ((school uniform)),brown blazer, black skirt,small breasts,necktie,red plaid skirt,looking at viewer" --ddim_steps 20 --n_samples 4 --n_iter 1 --scale 7.5 --W 768 --H 1024 --use_free --is_acgn
