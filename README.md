@@ -4,7 +4,7 @@ This repo implement a 8-step inference algorithm which FID performance is better
 run the customed_timeschedule_sampler.py, customed_timeschedule_sampler_xl.py, customed_timeschedule_sampler_laion.py, customed_timeschedule_sampler_xl_laion.py to get the experiment result.  
  
 ## Requirements
-This project use diffusers, which means you can simply install the environment by using pip install withoug confronting any conflict.  
+This project use diffusers, which means you can simply install the environment by using pip install without confronting any conflict.  
 ```
 conda env create --name hyper python=3.9
 pip3 install torch torchvision --index-url https://download.pytorch.org/whl/cu129
