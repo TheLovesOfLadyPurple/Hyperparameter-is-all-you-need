@@ -702,6 +702,12 @@ def main():
         help="use the 8 full trick for inference.",
     )
     parser.add_argument(
+        "--is_acgn",
+        action='store_true',
+        default=False,
+        help="use the 8 full trick for inference.",
+    )
+    parser.add_argument(
         "--ckpt",
         type=str,
         default="models/ldm/stable-diffusion-v1/model.ckpt",
@@ -730,9 +736,11 @@ def main():
 
     DTYPE = torch.float32  # torch.float16 works as well, but pictures seem to be a bit worse
     device = "cuda" 
-    # pipe = StableDiffusionPipeline.from_single_file( "./counterfeit/Counterfeit-V3.0_fp32.safetensors")
-    
-    pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
+    if opt.is_acgn:
+        pipe = StableDiffusionPipeline.from_single_file( "./counterfeit/Counterfeit-V3.0_fp32.safetensors")
+        neg_emb = pipe.load_textual_inversion("./EasyNegative.safetensors", device=device, dtype=DTYPE)
+    else:
+        pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
     # pipe = StableDiffusionPipeline.from_pretrained('sd-legacy/stable-diffusion-v1-5')
     pipe.scheduler = DPMSolverMultistepScheduler.from_config(
         pipe.scheduler.config
@@ -768,7 +776,7 @@ def main():
 
     prompt = opt.prompt
     assert prompt is not None
-    data = [prompt]
+    data = [batch_size * [prompt]]
 
     folder_name = f"samples-org-{opt.ddim_steps}"
     if opt.use_free_net:
@@ -805,7 +813,7 @@ def main():
                     if isinstance(prompts, tuple) or isinstance(prompts, str):
                         prompts = list(prompts)
 
-                    x_samples_ddim = pipe(prompt=prompts,num_inference_steps=opt.ddim_steps,guidance_scale=opt.scale,height=512,width=512).images
+                    x_samples_ddim = pipe(prompt=prompts,num_inference_steps=opt.ddim_steps,guidance_scale=opt.scale,height=opt.H,width=opt.W).images
                     if True:
                         for x_sample in x_samples_ddim:
                             # x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')

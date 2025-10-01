@@ -301,6 +301,7 @@ class NPNet(nn.Module):
 
             return golden_noise
 
+
 class NPNet64(nn.Module):
       def __init__(self, model_id, pretrained_path=' ', device='cuda') -> None:
             super(NPNet64, self).__init__()
