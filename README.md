@@ -1,7 +1,13 @@
 # Hyperparameters-are-all-you-need
 the implementation of the paper 'Hyperparameters are all you need: Using five-step inference for an original diffusion model to generate images comparable to the latest distillation model.'
 This repo implement a 8-step inference algorithm which FID performance is better than the results from the normal DPM++2m solver with 20-step inference. Meanwhile, it also support 5 and 6 step inference which generate result comparable with the latest diffussion distillation algorithm.
-run the customed_timeschedule_sampler.py, customed_timeschedule_sampler_xl.py, customed_timeschedule_sampler_laion.py, customed_timeschedule_sampler_xl_laion.py to get the experiment result.  
+run the following to get the experiment result.  
+```
+python customed_timeschedule_sampler.py
+python customed_timeschedule_sampler_xl.py
+python customed_timeschedule_sampler_laion.py
+python customed_timeschedule_sampler_xl_laion.py
+```
  
 ## Requirements
 This project use diffusers, which means you can simply install the environment by using pip install without confronting any conflict.  
