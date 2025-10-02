@@ -40,6 +40,25 @@ using the following command to generate images from the original solver:
 python txt2imgOrg.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 4 --n_iter 4 --scale 5.0  --ddim_steps 50
 ```
 
+
+## Text to Image XL Version
+using the following command to generate images from the new solver:
+
+
+<img src=gen_img_val_xl/samples-customedXL-8-retrain-free-full-trick-1-5.5/00000.png width=512 />
+
+```
+python txt2imgXL.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 1 --n_iter 1 --scale 5.5  --stop_steps 8
+```
+
+using the following command to generate images from the original solver:
+
+<img src=gen_img_val_v15/samples-org-50-notNPNet/00000.png width=512 />
+
+```
+python txt2imgOrg.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 1 --n_iter 1 --scale 5.0  --ddim_steps 50
+```
+
 ## Text to Image ACGN version
 using the following command to generate images from the new solver:
 
