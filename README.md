@@ -54,7 +54,7 @@ python txt2imgXL.py --prompt "a painting of a virus monster playing guitar" --n_
 using the following command to generate images from the new solver:
 
 
-<img src=gen_img_val_v15/samples-customed-8-notNPNet-full-trick-5.0/00003.png width=512 />
+<img src=gen_img_val_v15/samples-customed-8-notNPNet-full-trick-5.0/00000.png width=512 />
 
 ```
 python txt2img.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 4 --n_iter 4 --scale 5.0  --stop_steps 8
@@ -62,7 +62,7 @@ python txt2img.py --prompt "a virus monster is playing guitar, oil on canvas" --
 
 using the following command to generate images from the original solver:
 
-<img src=gen_img_val_v15/samples-org-50-notNPNet/00003.png width=512 />
+<img src=gen_img_val_v15/samples-org-50-notNPNet/00000.png width=512 />
 
 ```
 python txt2imgOrg.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 4 --n_iter 4 --scale 5.0  --ddim_steps 50
