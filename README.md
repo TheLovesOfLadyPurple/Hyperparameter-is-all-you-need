@@ -1,5 +1,5 @@
 # Hyperparameters-are-all-you-need
-<img src=gen_img_val_xl/comparison_grid_small.png />
+<img src=gen_img_val_xl/comparison_grid_small.jpg />
 the implementation of the paper 'Hyperparameters are all you need: Using five-step inference for an original diffusion model to generate images comparable to the latest distillation model.'
 This repo implement a 8-step inference algorithm which FID performance is better than the results from the normal DPM++2m solver with 20-step inference. Meanwhile, it also support 5 and 6 step inference which generate result comparable with the latest diffussion distillation algorithm.
 run the following code to get the experiment result.  
