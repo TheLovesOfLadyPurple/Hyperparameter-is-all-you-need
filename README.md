@@ -76,7 +76,7 @@ we also provide 5 step method:
 <img src=gen_img_val_v15/samples-customed-5-notNPNet-full-trick-7.5/00000.png width=512 />
 
 ```
-python txt2img.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 4 --n_iter 4 --scale 5.0  --stop_steps 5
+python txt2img.py --prompt "a virus monster is playing guitar, oil on canvas" --n_samples 4 --n_iter 4 --scale 7.5  --stop_steps 5
 ```
 
 <!-- ## Text to Image ACGN version
