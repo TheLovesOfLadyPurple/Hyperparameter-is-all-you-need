@@ -21,7 +21,7 @@ from diffusers import (
     StableDiffusionXLPipeline,
     StableDiffusionXLImg2ImgPipeline
 )
-from huggingface_hub import login
+from huggingface_hub import login, hf_hub_download
 import shutil
 from SVDNoiseUnet import NPNet128
 import functools
@@ -928,9 +928,12 @@ def main():
     DTYPE = torch.float32  # torch.float16 works as well, but pictures seem to be a bit worse
     device = "cuda" 
     # pipe = StableDiffusionPipeline.from_single_file( "./counterfeit/Counterfeit-V3.0_fp32.safetensors")
-    
+    repo_id = "madebyollin/sdxl-vae-fp16-fix"  # e.g., "distilbert/distilgpt2"
+    filename = "sdxl_vae.safetensors"  # e.g., "pytorch_model.bin"
+    downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename,cache_dir=".")
+
     # pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
-    vae = AutoencoderKL.from_single_file("./sdxl_vae.safetensors", torch_dtype=DTYPE)
+    vae = AutoencoderKL.from_single_file(downloaded_path, torch_dtype=DTYPE)
     vae.to('cuda')
     
     pipe = StableDiffusionXLPipeline.from_pretrained("Lykon/dreamshaper-xl-1-0",torch_dtype=DTYPE,vae=vae)

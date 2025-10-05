@@ -20,7 +20,7 @@ from diffusers import (
     AutoencoderKL,
     StableDiffusionXLPipeline
 )
-# from huggingface_hub import login
+from huggingface_hub import hf_hub_download
 from SVDNoiseUnet import NPNet64
 import functools
 import random
@@ -250,8 +250,13 @@ def main():
         # pipe.to(device=device, torch_dtype=DTYPE)
     else:
     # pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
-        vae = AutoencoderKL.from_single_file("./sdxl_vae.safetensors", torch_dtype=DTYPE)
-        vae.to('cuda')
+        
+        repo_id = "madebyollin/sdxl-vae-fp16-fix"  # e.g., "distilbert/distilgpt2"
+        filename = "sdxl_vae.safetensors"  # e.g., "pytorch_model.bin"
+        downloaded_path = hf_hub_download(repo_id=repo_id, filename=filename,cache_dir=".")
+
+        # pipe = StableDiffusionPipeline.from_pretrained('CompVis/stable-diffusion-v1-4')
+        vae = AutoencoderKL.from_single_file(downloaded_path, torch_dtype=DTYPE)
     
         pipe = StableDiffusionXLPipeline.from_pretrained("Lykon/dreamshaper-xl-1-0",torch_dtype=DTYPE,vae=vae)
         pipe.to('cuda')
