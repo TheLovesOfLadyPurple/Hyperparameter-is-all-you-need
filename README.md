@@ -1,4 +1,4 @@
-## Hyperparameters-are-all-you-need <br><sub>Official implementation of the paper 'Hyperparameters are all you need: Using five-step inference for an original diffusion model to generate images comparable to the latest distillation model.'</sub>
+## Hyperparameters-are-all-you-need
 
 <div align="center">
 <img src=gen_img_val_xl/comparison_grid_small.jpg />
