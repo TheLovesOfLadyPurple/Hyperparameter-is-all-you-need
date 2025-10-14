@@ -185,7 +185,7 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     def get_eps(self, *args, **kwargs):
         return self.inner_model(*args, **kwargs)
 
-    def get_alphact_and_sigma(self, timesteps, x_0, noise):
+    def get_alphact_and_sigma(self, timesteps):
         high_idx = torch.ceil(timesteps).int()
         low_idx = torch.floor(timesteps).int()
         
@@ -203,8 +203,8 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
         alpha_t = beta_t.new_ones(beta_t.shape[0]) - beta_t
         alpha_t_prev = beta_t.new_ones(beta_t.shape[0]) - beta_t_prev
         
-        dir_xt = (1. - alpha_t_prev).sqrt() * noise
-        x_prev = alpha_t_prev.sqrt() * x_0 + dir_xt + noise
+        # dir_xt = (1. - alpha_t_prev).sqrt() * noise
+        # x_prev = alpha_t_prev.sqrt() * x_0 + dir_xt + noise
         
         alpha_cumprod_t_floor = self.alpha_cumprods[low_idx]
         alpha_cumprod_t = (alpha_cumprod_t_floor * alpha_t) #.unsqueeze(1)
